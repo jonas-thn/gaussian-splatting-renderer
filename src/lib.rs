@@ -36,4 +36,9 @@ impl WasmRenderer {
             web_sys::console::error_1(&JsValue::from_str(&e));
         }
     }
+
+    #[wasm_bindgen(js_name = moveCamera)]
+    pub fn move_camera(&mut self, forward: f32, right: f32, up: f32, pitch: f32, yaw: f32) {
+        self.internal.move_camera(forward, right, up, pitch, yaw);
+    }
 }

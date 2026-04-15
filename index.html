@@ -18,7 +18,7 @@
         canvas {
             width: 800px;
             height: 600px;
-            background: #000;
+            background: #111;
             margin-top: 20px;
             border: 1px solid #333;
         }
@@ -26,7 +26,6 @@
 </head>
 
 <body>
-    <h2>Rust WebGPU 3DGS Renderer</h2>
     <canvas id="render-canvas"></canvas>
 
     <script type="module">
@@ -54,11 +53,59 @@
                 renderer.loadModel(new Uint8Array(buffer));
 
                 console.log("5. Start render loop");
+
+                const keys = { w: false, a: false, s: false, d: false, q: false, e: false, shift: false };
+
+                window.addEventListener('keydown', (e) => {
+                    if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = true;
+                });
+                window.addEventListener('keyup', (e) => {
+                    if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = false;
+                });
+
+                let isDragging = false;
+                canvas.addEventListener('mousedown', () => isDragging = true);
+                window.addEventListener('mouseup', () => isDragging = false);
+                window.addEventListener('mouseleave', () => isDragging = false);
+
+                let pitch = 0;
+                let yaw = 0;
+
+                canvas.addEventListener('mousemove', (e) => {
+                    if (!isDragging) return;
+                    
+                    const sensitivity = 0.005;
+                    
+                    pitch = e.movementY * sensitivity;
+                    yaw = e.movementX * sensitivity;
+                    
+                    renderer.moveCamera(0, 0, 0, pitch, yaw);
+                    
+                    pitch = 0;
+                    yaw = 0;
+                });
+
                 function tick() {
+                    const speed = keys.shift ? 10.0 : 0.5;
+                    let forward = 0, right = 0, up = 0;
+                    
+                    if (keys.w) forward += speed;
+                    if (keys.s) forward -= speed;
+                    if (keys.d) right += speed;
+                    if (keys.a) right -= speed;
+                    if (keys.e) up += speed; 
+                    if (keys.q) up -= speed; 
+
+                    if (forward !== 0 || right !== 0 || up !== 0) {
+                        renderer.moveCamera(forward, right, up, 0.0, 0.0);
+                    }
+
                     renderer.render();
                     requestAnimationFrame(tick);
                 }
                 tick();
+
+                console.log("ACTIVE MOVEMENT");
 
             } catch (error) {
                 console.error("Error:", error);

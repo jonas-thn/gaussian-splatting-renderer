@@ -79,6 +79,7 @@ impl GsRenderer {
 
         let gaussians = gs::core::Gaussians::read_from(&mut cursor, gs::core::GaussiansSource::Ply)
             .map_err(|e| format!("Error PLY Parsing: {:?}", e))?;
+        let count = gaussians.len();
 
         let camera = gs::Camera::new(0.1..1e4, 60f32.to_radians());
 
@@ -87,17 +88,17 @@ impl GsRenderer {
 
         viewer.update_model_transform(
             &self.queue,
-            Vec3::ZERO,
+            Vec3::new(0.0, 0.0, -5.0),
             Quat::from_axis_angle(Vec3::Z, 180f32.to_radians()),
             Vec3::ONE,
         );
 
         viewer.update_gaussian_transform(
             &self.queue,
-            1.0, 
+            1.0,
             gs::core::GaussianDisplayMode::Splat,
             gs::core::GaussianShDegree::new(3).unwrap(),
-            false, 
+            false,
             gs::core::GaussianMaxStdDev::new(3.0).unwrap(),
         );
 
@@ -136,6 +137,30 @@ impl GsRenderer {
                 label: Some("Render Encoder"),
             });
 
+        {
+            let _clear_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Clear Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.1,
+                            g: 0.1,
+                            b: 0.2,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+        }
+
         viewer.render(&mut encoder, &view);
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -143,5 +168,20 @@ impl GsRenderer {
         frame.present();
 
         Ok(())
+    }
+
+    pub fn move_camera(&mut self, forward: f32, right: f32, up: f32, pitch: f32, yaw: f32) {
+        if let (Some(camera), Some(viewer)) = (&mut self.camera, &mut self.viewer) {
+            camera.move_by(forward, right);
+            camera.move_up(up);
+            camera.pitch_by(pitch);
+            camera.yaw_by(yaw);
+
+            viewer.update_camera(
+                &self.queue,
+                camera,
+                glam::uvec2(self.config.width, self.config.height),
+            );
+        }
     }
 }
