@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <meta charset="UTF-8">
+    <title>3DGS WebGPU Test</title>
+    <style>
+        body {
+            margin: 0;
+            background: #111;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: sans-serif;
+        }
+
+        canvas {
+            width: 800px;
+            height: 600px;
+            background: #000;
+            margin-top: 20px;
+            border: 1px solid #333;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Rust WebGPU 3DGS Renderer</h2>
+    <canvas id="render-canvas"></canvas>
+
+    <script type="module">
+        import init, { WasmRenderer } from './pkg/rust_3dgs_renderer.js';
+
+        async function start() {
+            try {
+                console.log("1. Load WASM Module...");
+                await init();
+
+                const canvas = document.getElementById('render-canvas');
+                canvas.width = 800;
+                canvas.height = 600;
+
+                console.log("2. Create GPU Context...");
+                const renderer = await WasmRenderer.create(canvas);
+
+                console.log("3. Load PLY File...");
+                const response = await fetch('./model.ply');
+                if (!response.ok) throw new Error("Error Loading Model");
+
+                const buffer = await response.arrayBuffer();
+
+                console.log("4. Transfer files to rust...");
+                renderer.loadModel(new Uint8Array(buffer));
+
+                console.log("5. Start render loop");
+                function tick() {
+                    renderer.render();
+                    requestAnimationFrame(tick);
+                }
+                tick();
+
+            } catch (error) {
+                console.error("Error:", error);
+            }
+        }
+
+        start();
+    </script>
+</body>
+
+</html>

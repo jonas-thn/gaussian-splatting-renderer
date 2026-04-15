@@ -23,4 +23,17 @@ impl WasmRenderer {
 
         Ok(WasmRenderer { internal: renderer })
     }
+
+    #[wasm_bindgen(js_name = loadModel)]
+    pub fn load_model(&mut self, ply_data: &[u8]) -> Result<(), JsValue> {
+        self.internal
+            .load_model(ply_data)
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
+    pub fn render(&mut self) {
+        if let Err(e) = self.internal.render() {
+            web_sys::console::error_1(&JsValue::from_str(&e));
+        }
+    }
 }

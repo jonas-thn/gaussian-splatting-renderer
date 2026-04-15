@@ -12,6 +12,7 @@ wgpu-3dgs-viewer = "0.6.1"
 wasm-bindgen = "0.2.118"
 wasm-bindgen-futures = "0.4.68"
 console_error_panic_hook = "0.1.7"
+glam = { version = "0.30", features = ["bytemuck"] }
 
 [dependencies.web-sys]
 version = "0.3"
