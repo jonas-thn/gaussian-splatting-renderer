@@ -79,7 +79,6 @@ impl GsRenderer {
 
         let gaussians = gs::core::Gaussians::read_from(&mut cursor, gs::core::GaussiansSource::Ply)
             .map_err(|e| format!("Error PLY Parsing: {:?}", e))?;
-        let count = gaussians.len();
 
         let camera = gs::Camera::new(0.1..1e4, 60f32.to_radians());
 
@@ -88,7 +87,7 @@ impl GsRenderer {
 
         viewer.update_model_transform(
             &self.queue,
-            Vec3::new(0.0, 0.0, -5.0),
+            Vec3::ZERO,
             Quat::from_axis_angle(Vec3::Z, 180f32.to_radians()),
             Vec3::ONE,
         );
@@ -176,6 +175,25 @@ impl GsRenderer {
             camera.move_up(up);
             camera.pitch_by(pitch);
             camera.yaw_by(yaw);
+
+            viewer.update_camera(
+                &self.queue,
+                camera,
+                glam::uvec2(self.config.width, self.config.height),
+            );
+        }
+    }
+
+    pub fn set_camera(&mut self, px: f32, py: f32, pz: f32, qx: f32, qy: f32, qz: f32, qw: f32) {
+        if let (Some(camera), Some(viewer)) = (&mut self.camera, &mut self.viewer) {
+            camera.pos = glam::Vec3::new(px, py, pz);
+
+            let rotation = glam::Quat::from_xyzw(qx, qy, qz, qw);
+
+            let forward = rotation * glam::Vec3::new(0.0, 0.0, -1.0);
+
+            camera.pitch = forward.y.asin();
+            camera.yaw = forward.x.atan2(forward.z);
 
             viewer.update_camera(
                 &self.queue,

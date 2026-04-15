@@ -41,4 +41,9 @@ impl WasmRenderer {
     pub fn move_camera(&mut self, forward: f32, right: f32, up: f32, pitch: f32, yaw: f32) {
         self.internal.move_camera(forward, right, up, pitch, yaw);
     }
+
+    #[wasm_bindgen(js_name = setCamera)]
+    pub fn set_camera(&mut self, px: f32, py: f32, pz: f32, qx: f32, qy: f32, qz: f32, qw: f32) {
+        self.internal.set_camera(px, py, pz, qx, qy, qz, qw);
+    }
 }

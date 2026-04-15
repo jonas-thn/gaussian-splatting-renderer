@@ -54,7 +54,7 @@
 
                 console.log("5. Start render loop");
 
-                const keys = { w: false, a: false, s: false, d: false, q: false, e: false, shift: false };
+                const keys = { w: false, a: false, s: false, d: false, q: false, e: false};
 
                 window.addEventListener('keydown', (e) => {
                     if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = true;
@@ -73,28 +73,39 @@
 
                 canvas.addEventListener('mousemove', (e) => {
                     if (!isDragging) return;
-                    
+
                     const sensitivity = 0.005;
-                    
+
                     pitch = e.movementY * sensitivity;
                     yaw = e.movementX * sensitivity;
-                    
+
                     renderer.moveCamera(0, 0, 0, pitch, yaw);
-                    
+
                     pitch = 0;
                     yaw = 0;
                 });
 
+                let lastTime = performance.now();
+                let frames = 0;
+
                 function tick() {
-                    const speed = keys.shift ? 10.0 : 0.5;
+                    const now = performance.now();
+                    frames++;
+                    if (now - lastTime >= 1000) { // Einmal pro Sekunde updaten
+                        document.getElementById('fps-val').innerText = frames;
+                        frames = 0;
+                        lastTime = now;
+                    }
+
+                    const speed = 0.1;
                     let forward = 0, right = 0, up = 0;
-                    
+
                     if (keys.w) forward += speed;
                     if (keys.s) forward -= speed;
                     if (keys.d) right += speed;
                     if (keys.a) right -= speed;
-                    if (keys.e) up += speed; 
-                    if (keys.q) up -= speed; 
+                    if (keys.e) up += speed;
+                    if (keys.q) up -= speed;
 
                     if (forward !== 0 || right !== 0 || up !== 0) {
                         renderer.moveCamera(forward, right, up, 0.0, 0.0);
@@ -115,5 +126,10 @@
         start();
     </script>
 </body>
+
+<div id="fps-counter"
+    style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.8); color: lime; padding: 10px; font-family: monospace; font-size: 16px; border: 1px solid lime;">
+    FPS: <span id="fps-val">0</span>
+</div>
 
 </html>
