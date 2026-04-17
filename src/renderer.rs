@@ -2,7 +2,7 @@ use glam::{Quat, Vec3, uvec2};
 use std::io::Cursor;
 use web_sys::HtmlCanvasElement;
 use wgpu::{ExperimentalFeatures, SurfaceConfiguration, SurfaceTarget};
-use wgpu_3dgs_viewer::{self as gs, Viewer};
+use wgpu_3dgs_viewer as gs;
 
 pub struct GsRenderer {
     surface: wgpu::Surface<'static>,
@@ -12,6 +12,8 @@ pub struct GsRenderer {
 
     pub viewer: Option<gs::Viewer>,
     pub camera: Option<gs::Camera>,
+
+    needs_update: bool,
 }
 
 impl GsRenderer {
@@ -71,7 +73,17 @@ impl GsRenderer {
             config,
             viewer: None,
             camera: None,
+            needs_update: true,
         })
+    }
+
+    pub fn resize(&mut self, new_width: u32, new_height: u32) {
+        if new_width > 0 && new_height > 0 {
+            self.config.width = new_width;
+            self.config.height = new_height;
+            self.surface.configure(&self.device, &self.config);
+            self.needs_update = true;
+        }
     }
 
     pub fn load_model(&mut self, ply_data: &[u8]) -> Result<(), String> {
@@ -109,15 +121,26 @@ impl GsRenderer {
 
         self.viewer = Some(viewer);
         self.camera = Some(camera);
+        self.needs_update = true;
 
         Ok(())
     }
 
     pub fn render(&mut self) -> Result<(), String> {
-        let viewer = match self.viewer.as_mut() {
-            Some(v) => v,
-            None => return Ok(()),
+        if !self.needs_update {
+            return Ok(());
+        }
+
+        let (viewer, camera) = match (self.viewer.as_mut(), self.camera.as_ref()) {
+            (Some(v), Some(c)) => (v, c),
+            _ => return Ok(()),
         };
+
+        viewer.update_camera(
+            &self.queue,
+            camera,
+            uvec2(self.config.width, self.config.height),
+        );
 
         let frame = self
             .surface
@@ -144,7 +167,7 @@ impl GsRenderer {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
+                            r: 1.0,
                             g: 0.1,
                             b: 0.2,
                             a: 1.0,
@@ -163,29 +186,26 @@ impl GsRenderer {
         viewer.render(&mut encoder, &view);
 
         self.queue.submit(std::iter::once(encoder.finish()));
-
         frame.present();
+
+        self.needs_update = false;
 
         Ok(())
     }
 
     pub fn move_camera(&mut self, forward: f32, right: f32, up: f32, pitch: f32, yaw: f32) {
-        if let (Some(camera), Some(viewer)) = (&mut self.camera, &mut self.viewer) {
+        if let Some(camera) = &mut self.camera {
             camera.move_by(forward, right);
             camera.move_up(up);
             camera.pitch_by(pitch);
             camera.yaw_by(yaw);
 
-            viewer.update_camera(
-                &self.queue,
-                camera,
-                glam::uvec2(self.config.width, self.config.height),
-            );
+            self.needs_update = true;
         }
     }
 
     pub fn set_camera(&mut self, px: f32, py: f32, pz: f32, qx: f32, qy: f32, qz: f32, qw: f32) {
-        if let (Some(camera), Some(viewer)) = (&mut self.camera, &mut self.viewer) {
+        if let Some(camera) = &mut self.camera {
             camera.pos = glam::Vec3::new(px, py, pz);
 
             let rotation = glam::Quat::from_xyzw(qx, qy, qz, qw);
@@ -195,11 +215,7 @@ impl GsRenderer {
             camera.pitch = forward.y.asin();
             camera.yaw = forward.x.atan2(forward.z);
 
-            viewer.update_camera(
-                &self.queue,
-                camera,
-                glam::uvec2(self.config.width, self.config.height),
-            );
+            self.needs_update = true;
         }
     }
 }
