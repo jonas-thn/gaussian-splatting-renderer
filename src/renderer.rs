@@ -14,6 +14,8 @@ pub struct GsRenderer {
     pub camera: Option<gs::Camera>,
 
     needs_update: bool,
+    last_pos: glam::Vec3,    
+    last_quat: glam::Quat,
 }
 
 impl GsRenderer {
@@ -74,6 +76,8 @@ impl GsRenderer {
             viewer: None,
             camera: None,
             needs_update: true,
+            last_pos: glam::Vec3::new(f32::MAX, f32::MAX, f32::MAX), 
+            last_quat: glam::Quat::IDENTITY,
         })
     }
 
@@ -159,29 +163,29 @@ impl GsRenderer {
                 label: Some("Render Encoder"),
             });
 
-        {
-            let _clear_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Clear Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 1.0,
-                            g: 0.1,
-                            b: 0.2,
-                            a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-        }
+        // {
+        //     let _clear_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        //         label: Some("Clear Pass"),
+        //         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+        //             view: &view,
+        //             resolve_target: None,
+        //             ops: wgpu::Operations {
+        //                 load: wgpu::LoadOp::Clear(wgpu::Color {
+        //                     r: 1.0,
+        //                     g: 0.1,
+        //                     b: 0.2,
+        //                     a: 1.0,
+        //                 }),
+        //                 store: wgpu::StoreOp::Store,
+        //             },
+        //             depth_slice: None,
+        //         })],
+        //         depth_stencil_attachment: None,
+        //         timestamp_writes: None,
+        //         occlusion_query_set: None,
+        //         multiview_mask: None,
+        //     });
+        // }
 
         viewer.render(&mut encoder, &view);
 
@@ -205,17 +209,38 @@ impl GsRenderer {
     }
 
     pub fn set_camera(&mut self, px: f32, py: f32, pz: f32, qx: f32, qy: f32, qz: f32, qw: f32) {
-        if let Some(camera) = &mut self.camera {
-            camera.pos = glam::Vec3::new(px, py, pz);
+        let new_pos = glam::Vec3::new(px, py, pz);
+        let new_quat = glam::Quat::from_xyzw(qx, qy, qz, qw);
 
-            let rotation = glam::Quat::from_xyzw(qx, qy, qz, qw);
+        let pos_diff = self.last_pos.distance_squared(new_pos);
+        let quat_diff = self.last_quat.dot(new_quat).abs();
+        
+        const POS_TRHEHSHOLD: f32 = 0.01 * 0.01;
+        const ROT_THRESHOLD: f32 = 0.9999; 
+        if pos_diff > POS_TRHEHSHOLD || quat_diff < ROT_THRESHOLD {
+            if let Some(camera) = &mut self.camera {
+                camera.pos = new_pos;
+                
+                let forward = new_quat * glam::Vec3::new(0.0, 0.0, -1.0);
+                camera.pitch = forward.y.asin();
+                camera.yaw = forward.x.atan2(forward.z);
 
-            let forward = rotation * glam::Vec3::new(0.0, 0.0, -1.0);
-
-            camera.pitch = forward.y.asin();
-            camera.yaw = forward.x.atan2(forward.z);
-
-            self.needs_update = true;
+                self.last_pos = new_pos;
+                self.last_quat = new_quat;
+                self.needs_update = true;
+            }
         }
     }
+
+    pub fn set_model_transform(&mut self, px: f32, py: f32, pz: f32, qx: f32, qy: f32, qz: f32, qw: f32, scale: f32) {
+    if let Some(viewer) = &mut self.viewer {
+        viewer.update_model_transform(
+            &self.queue,
+            glam::Vec3::new(px, py, pz),
+            glam::Quat::from_xyzw(qx, qy, qz, qw),
+            glam::Vec3::splat(scale),
+        );
+        self.needs_update = true;
+    }
+}
 }
