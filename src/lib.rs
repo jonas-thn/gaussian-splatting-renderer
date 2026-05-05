@@ -49,6 +49,11 @@ impl WasmRenderer {
 
     #[wasm_bindgen(js_name = setCamera)]
     pub fn set_camera(&mut self, px: f32, py: f32, pz: f32, qx: f32, qy: f32, qz: f32, qw: f32) {
-        self.internal.set_camera(px, py, pz, qx, qy, qz, qw);
+        self.internal.set_camera_with_threshold(px, py, pz, qx, qy, qz, qw);
+    }
+
+    #[wasm_bindgen(js_name = setModelTransform)]
+    pub fn set_model_transform(&mut self, px: f32, py: f32, pz: f32, qx: f32, qy: f32, qz: f32, qw: f32, scale: f32) {
+        self.internal.set_model_transform(px, py, pz, qx, qy, qz, qw, scale);
     }
 }

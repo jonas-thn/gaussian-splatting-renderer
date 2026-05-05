@@ -20,6 +20,11 @@ pub struct GsRenderer {
 
 impl GsRenderer {
     pub async fn new(canvas: HtmlCanvasElement) -> Result<Self, String> {
+        let width = canvas.client_width() as u32;
+        let height = canvas.client_height() as u32;
+        if width > 0 { canvas.set_width(width); }
+        if height > 0 { canvas.set_height(height); }
+
         let instance = wgpu::Instance::default();
 
         let surface = instance
@@ -53,15 +58,27 @@ impl GsRenderer {
         let height = canvas.height().max(1);
 
         let surface_caps = surface.get_capabilities(&adapter);
-        let surface_format = surface_caps.formats[0];
+        let surface_format = surface_caps
+            .formats
+            .iter()
+            .find(|f| matches!(f, wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba8Unorm))
+            .copied()
+            .unwrap_or(surface_caps.formats[0]);
+
+        let alpha_mode = surface_caps
+            .alpha_modes
+            .iter()
+            .find(|m| **m == wgpu::CompositeAlphaMode::Opaque)
+            .copied()
+            .unwrap_or(surface_caps.alpha_modes[0]);
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
             width,
             height,
-            present_mode: wgpu::PresentMode::Fifo,
-            alpha_mode: surface_caps.alpha_modes[0],
+            present_mode: wgpu::PresentMode::AutoNoVsync,
+            alpha_mode,
             view_formats: vec![surface_format.remove_srgb_suffix()],
             desired_maximum_frame_latency: 2,
         };
@@ -112,7 +129,7 @@ impl GsRenderer {
             &self.queue,
             1.0,
             gs::core::GaussianDisplayMode::Splat,
-            gs::core::GaussianShDegree::new(3).unwrap(),
+            gs::core::GaussianShDegree::new(0).unwrap(),
             false,
             gs::core::GaussianMaxStdDev::new(3.0).unwrap(),
         );
@@ -131,6 +148,7 @@ impl GsRenderer {
     }
 
     pub fn render(&mut self) -> Result<(), String> {
+        // self.needs_update = true;
         if !self.needs_update {
             return Ok(());
         }
@@ -208,15 +226,15 @@ impl GsRenderer {
         }
     }
 
-    pub fn set_camera(&mut self, px: f32, py: f32, pz: f32, qx: f32, qy: f32, qz: f32, qw: f32) {
+    pub fn set_camera_with_threshold(&mut self, px: f32, py: f32, pz: f32, qx: f32, qy: f32, qz: f32, qw: f32) {
         let new_pos = glam::Vec3::new(px, py, pz);
         let new_quat = glam::Quat::from_xyzw(qx, qy, qz, qw);
 
         let pos_diff = self.last_pos.distance_squared(new_pos);
         let quat_diff = self.last_quat.dot(new_quat).abs();
         
-        const POS_TRHEHSHOLD: f32 = 0.01 * 0.01;
-        const ROT_THRESHOLD: f32 = 0.9999; 
+        const POS_TRHEHSHOLD: f32 = 0.001 * 0.001;
+        const ROT_THRESHOLD: f32 = 0.999999; 
         if pos_diff > POS_TRHEHSHOLD || quat_diff < ROT_THRESHOLD {
             if let Some(camera) = &mut self.camera {
                 camera.pos = new_pos;
@@ -232,15 +250,33 @@ impl GsRenderer {
         }
     }
 
-    pub fn set_model_transform(&mut self, px: f32, py: f32, pz: f32, qx: f32, qy: f32, qz: f32, qw: f32, scale: f32) {
-    if let Some(viewer) = &mut self.viewer {
-        viewer.update_model_transform(
-            &self.queue,
-            glam::Vec3::new(px, py, pz),
-            glam::Quat::from_xyzw(qx, qy, qz, qw),
-            glam::Vec3::splat(scale),
-        );
-        self.needs_update = true;
+    pub fn set_camera(&mut self, px: f32, py: f32, pz: f32, qx: f32, qy: f32, qz: f32, qw: f32)
+    {
+        let new_pos = glam::Vec3::new(px, py, pz);
+        let new_quat = glam::Quat::from_xyzw(qx, qy, qz, qw);
+
+        if let Some(camera) = &mut self.camera {
+            camera.pos = new_pos;
+            
+            let forward = new_quat * glam::Vec3::new(0.0, 0.0, -1.0);
+            camera.pitch = forward.y.asin();
+            camera.yaw = forward.x.atan2(forward.z);
+
+            self.last_pos = new_pos;
+            self.last_quat = new_quat;
+            self.needs_update = true;
+        }
     }
-}
+
+    pub fn set_model_transform(&mut self, px: f32, py: f32, pz: f32, qx: f32, qy: f32, qz: f32, qw: f32, scale: f32) {
+        if let Some(viewer) = &mut self.viewer {
+            viewer.update_model_transform(
+                &self.queue,
+                glam::Vec3::new(px, py, pz),
+                glam::Quat::from_xyzw(qx, qy, qz, qw),
+                glam::Vec3::splat(scale),
+            );
+            self.needs_update = true;
+        }
+    }
 }
