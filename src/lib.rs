@@ -56,4 +56,28 @@ impl WasmRenderer {
     pub fn set_model_transform(&mut self, px: f32, py: f32, pz: f32, qx: f32, qy: f32, qz: f32, qw: f32, scale: f32) {
         self.internal.set_model_transform(px, py, pz, qx, qy, qz, qw, scale);
     }
+
+    #[wasm_bindgen(js_name = setStereoCameras)]
+    pub fn set_stereo_cameras(
+        &mut self, 
+        left_view: &[f32], left_proj: &[f32],
+        right_view: &[f32], right_proj: &[f32]
+    )
+    {
+        if let (Ok(lv), Ok(lp), Ok(rv), Ok(rp)) = (
+            left_view.try_into(), left_proj.try_into(),
+            right_view.try_into(), right_proj.try_into()
+        ) {
+            self.internal.set_stereo_cameras(&lv, &lp, &rv, &rp);
+        } else {
+            web_sys::console::warn_1(&JsValue::from_str("Invalid matrix size passed to setStereoCameras"));
+        }
+    }
+
+    #[wasm_bindgen(js_name = renderStereo)]
+    pub fn render_stereo(&mut self) {
+        if let Err(e) = self.internal.render_stereo() {
+            web_sys::console::error_1(&JsValue::from_str(&e));
+        }
+    }
 }

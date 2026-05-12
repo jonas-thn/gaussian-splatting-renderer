@@ -1,0 +1,363 @@
+use crate::{
+    CameraBuffer, GaussianPod, GaussianTransformBuffer, GaussiansBuffer, IndirectArgsBuffer,
+    IndirectIndicesBuffer, ModelTransformBuffer, RendererCreateError, core::BufferWrapper,
+    wesl_utils,
+};
+
+/// A renderer for Gaussians.
+#[derive(Debug)]
+pub struct Renderer<G: GaussianPod, B = wgpu::BindGroup> {
+    /// The bind group layout.
+    bind_group_layout: wgpu::BindGroupLayout,
+    /// The bind group.
+    bind_group: B,
+    /// The render pipeline.
+    pipeline: wgpu::RenderPipeline,
+    /// The marker for the Gaussian POD type.
+    gaussian_pod_marker: std::marker::PhantomData<G>,
+}
+
+impl<G: GaussianPod, B> Renderer<G, B> {
+    /// Create the bind group.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_bind_group(
+        &self,
+        device: &wgpu::Device,
+        camera: &CameraBuffer,
+        model_transform: &ModelTransformBuffer,
+        gaussian_transform: &GaussianTransformBuffer,
+        gaussians: &GaussiansBuffer<G>,
+        indirect_indices: &IndirectIndicesBuffer,
+    ) -> wgpu::BindGroup {
+        Renderer::create_bind_group_static(
+            device,
+            &self.bind_group_layout,
+            camera,
+            model_transform,
+            gaussian_transform,
+            gaussians,
+            indirect_indices,
+        )
+    }
+
+    /// Get the bind group layout.
+    pub fn bind_group_layout(&self) -> &wgpu::BindGroupLayout {
+        &self.bind_group_layout
+    }
+
+    /// Get the render pipeline.
+    pub fn pipeline(&self) -> &wgpu::RenderPipeline {
+        &self.pipeline
+    }
+}
+
+impl<G: GaussianPod> Renderer<G> {
+    /// The bind group layout descriptor.
+    pub const BIND_GROUP_LAYOUT_DESCRIPTOR: wgpu::BindGroupLayoutDescriptor<'static> =
+        wgpu::BindGroupLayoutDescriptor {
+            label: Some("Renderer Bind Group Layout"),
+            entries: &[
+                // Camera uniform buffer
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // Model transform uniform buffer
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // Gaussian transform uniform buffer
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // Gaussian storage buffer
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // Indirect indices storage buffer
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        };
+
+    /// Create a new renderer.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        device: &wgpu::Device,
+        texture_format: wgpu::TextureFormat,
+        depth_stencil: Option<wgpu::DepthStencilState>,
+        camera: &CameraBuffer,
+        model_transform: &ModelTransformBuffer,
+        gaussian_transform: &GaussianTransformBuffer,
+        gaussians: &GaussiansBuffer<G>,
+        indirect_indices: &IndirectIndicesBuffer,
+    ) -> Result<Self, RendererCreateError> {
+        if (device.limits().max_storage_buffer_binding_size as u64) < gaussians.buffer().size() {
+            return Err(RendererCreateError::ModelSizeExceedsDeviceLimit {
+                model_size: gaussians.buffer().size(),
+                device_limit: device.limits().max_storage_buffer_binding_size as u64,
+            });
+        }
+
+        let this = Renderer::new_without_bind_group(device, texture_format, depth_stencil)?;
+
+        log::debug!("Creating renderer bind group");
+        let bind_group = this.create_bind_group(
+            device,
+            camera,
+            model_transform,
+            gaussian_transform,
+            gaussians,
+            indirect_indices,
+        );
+
+        Ok(Self {
+            bind_group_layout: this.bind_group_layout,
+            bind_group,
+            pipeline: this.pipeline,
+            gaussian_pod_marker: std::marker::PhantomData,
+        })
+    }
+
+    /// Get the bind group.
+    pub fn bind_group(&self) -> &wgpu::BindGroup {
+        &self.bind_group
+    }
+
+    /// Render the scene.
+    pub fn render(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        indirect_args: &IndirectArgsBuffer,
+        viewport: Option<(f32, f32, f32, f32)>
+    ) {
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Renderer Render Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+                depth_slice: None,
+            })],
+            ..Default::default()
+        });
+
+        self.render_with_pass(&mut render_pass, indirect_args, viewport);
+    }
+
+    /// Render the scene with a [`wgpu::RenderPass`].
+    pub fn render_with_pass(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        indirect_args: &IndirectArgsBuffer,
+        viewport: Option<(f32, f32, f32, f32)>
+    ) {
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &self.bind_group, &[]);
+
+        if let Some((x, y, w, h)) = viewport {
+            pass.set_viewport(x, y, w, h, 0.0, 1.0);
+        }
+
+        pass.draw_indirect(indirect_args.buffer(), 0);
+    }
+
+    /// Create the bind group statically.
+    #[allow(clippy::too_many_arguments)]
+    fn create_bind_group_static(
+        device: &wgpu::Device,
+        bind_group_layout: &wgpu::BindGroupLayout,
+        camera: &CameraBuffer,
+        model_transform: &ModelTransformBuffer,
+        gaussian_transform: &GaussianTransformBuffer,
+        gaussians: &GaussiansBuffer<G>,
+        indirect_indices: &IndirectIndicesBuffer,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Renderer Bind Group"),
+            layout: bind_group_layout,
+            entries: &[
+                // Camera uniform buffer
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera.buffer().as_entire_binding(),
+                },
+                // Model transform uniform buffer
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: model_transform.buffer().as_entire_binding(),
+                },
+                // Gaussian transform uniform buffer
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: gaussian_transform.buffer().as_entire_binding(),
+                },
+                // Gaussian storage buffer
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: gaussians.buffer().as_entire_binding(),
+                },
+                // Indirect indices storage buffer
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: indirect_indices.buffer().as_entire_binding(),
+                },
+            ],
+        })
+    }
+}
+
+impl<G: GaussianPod> Renderer<G, ()> {
+    /// Create a new renderer without internally managed bind group.
+    ///
+    /// To create a bind group with layout matched to this renderer, use the
+    /// [`Renderer::create_bind_group`] method.
+    pub fn new_without_bind_group(
+        device: &wgpu::Device,
+        texture_format: wgpu::TextureFormat,
+        depth_stencil: Option<wgpu::DepthStencilState>,
+    ) -> Result<Self, RendererCreateError> {
+        log::debug!("Creating renderer bind group layout");
+        let bind_group_layout =
+            device.create_bind_group_layout(&Renderer::<G>::BIND_GROUP_LAYOUT_DESCRIPTOR);
+
+        log::debug!("Creating renderer pipeline layout");
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Renderer Pipeline Layout"),
+            bind_group_layouts: &[&bind_group_layout],
+            ..Default::default()
+        });
+
+        log::debug!("Creating renderer shader");
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Renderer Shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                wesl::compile_sourcemap(
+                    &"wgpu_3dgs_viewer::render"
+                        .parse()
+                        .expect("render module path"),
+                    &wesl_utils::resolver(),
+                    &wesl::NoMangler,
+                    &wesl::CompileOptions {
+                        features: G::wesl_features(),
+                        ..Default::default()
+                    },
+                )?
+                .to_string()
+                .into(),
+            ),
+        });
+
+        log::debug!("Creating renderer pipeline");
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Renderer Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vert_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("frag_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: texture_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
+        log::info!("Renderer created");
+
+        Ok(Self {
+            bind_group_layout,
+            bind_group: (),
+            pipeline,
+            gaussian_pod_marker: std::marker::PhantomData,
+        })
+    }
+
+    /// Render the scene.
+    pub fn render(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        bind_group: &wgpu::BindGroup,
+        indirect_args: &IndirectArgsBuffer,
+    ) {
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Renderer Render Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load, 
+                    store: wgpu::StoreOp::Store,
+                },
+                depth_slice: None,
+            })],
+            ..Default::default()
+        });
+
+        self.render_with_pass(&mut render_pass, bind_group, indirect_args);
+    }
+
+    /// Render the scene with a [`wgpu::RenderPass`].
+    pub fn render_with_pass(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        bind_group: &wgpu::BindGroup,
+        indirect_args: &IndirectArgsBuffer,
+    ) {
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, bind_group, &[]);
+        pass.draw_indirect(indirect_args.buffer(), 0);
+    }
+}

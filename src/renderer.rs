@@ -16,6 +16,11 @@ pub struct GsRenderer {
     needs_update: bool,
     last_pos: glam::Vec3,    
     last_quat: glam::Quat,
+
+    left_view: glam::Mat4,
+    left_proj: glam::Mat4,
+    right_view: glam::Mat4,
+    right_proj: glam::Mat4,
 }
 
 impl GsRenderer {
@@ -95,6 +100,10 @@ impl GsRenderer {
             needs_update: true,
             last_pos: glam::Vec3::new(f32::MAX, f32::MAX, f32::MAX), 
             last_quat: glam::Quat::IDENTITY,
+            left_view: glam::Mat4::IDENTITY,
+            left_proj: glam::Mat4::IDENTITY,
+            right_view: glam::Mat4::IDENTITY,
+            right_proj: glam::Mat4::IDENTITY,
         })
     }
 
@@ -181,31 +190,31 @@ impl GsRenderer {
                 label: Some("Render Encoder"),
             });
 
-        // {
-        //     let _clear_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        //         label: Some("Clear Pass"),
-        //         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-        //             view: &view,
-        //             resolve_target: None,
-        //             ops: wgpu::Operations {
-        //                 load: wgpu::LoadOp::Clear(wgpu::Color {
-        //                     r: 1.0,
-        //                     g: 0.1,
-        //                     b: 0.2,
-        //                     a: 1.0,
-        //                 }),
-        //                 store: wgpu::StoreOp::Store,
-        //             },
-        //             depth_slice: None,
-        //         })],
-        //         depth_stencil_attachment: None,
-        //         timestamp_writes: None,
-        //         occlusion_query_set: None,
-        //         multiview_mask: None,
-        //     });
-        // }
+        {
+            let _clear_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Clear Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 1.0,
+                            g: 0.1,
+                            b: 0.2,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+        }
 
-        viewer.render(&mut encoder, &view);
+        viewer.render(&mut encoder, &view, None);
 
         self.queue.submit(std::iter::once(encoder.finish()));
         frame.present();
@@ -278,5 +287,82 @@ impl GsRenderer {
             );
             self.needs_update = true;
         }
+    }
+
+    pub fn set_stereo_cameras(&mut self,
+        left_view: &[f32; 16], left_proj: &[f32; 16],
+        right_view: &[f32; 16], right_proj: &[f32; 16])
+    {
+        self.left_view = glam::Mat4::from_cols_array(left_view);
+        self.left_proj = glam::Mat4::from_cols_array(left_proj);
+        self.right_view = glam::Mat4::from_cols_array(right_view);
+        self.right_proj = glam::Mat4::from_cols_array(right_proj);
+        self.needs_update = true;
+    }
+
+    pub fn render_stereo(&mut self) -> Result<(), String> {
+        if !self.needs_update {
+            return Ok(())
+        }
+
+        let viewer = match self.viewer.as_mut() {
+            Some(v) => v,
+            None => return Ok(())
+        };
+
+        let frame = self.surface.get_current_texture().map_err(|e| format!("Error Get Texture: {:?}", e))?;
+
+        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("Stereo Render View"),
+            format: Some(self.config.view_formats[0]),
+            ..Default::default()
+        });
+
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Render Encoder")
+        });
+
+        {
+            let _clear_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Clear Pass Stereo"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.2, g: 0.1, b: 1.0, a: 1.0 }), 
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+        }
+
+        let half_width = self.config.width as f32 / 2.0;
+        let height = self.config.height as f32;
+        let tex_size = uvec2(self.config.width / 2, self.config.height);
+
+        let left_camera = gs::RawCamera {
+            view_matrix: self.left_view,
+            proj_matrix: self.left_proj
+        };
+        viewer.update_camera(&self.queue, &left_camera, tex_size);
+        viewer.render(&mut encoder, &view, Some((0.0, 0.0, half_width, height)));
+
+        let right_camera = gs::RawCamera {
+            view_matrix: self.right_view,
+            proj_matrix: self.right_proj,
+        };
+        viewer.update_camera(&self.queue, &right_camera, tex_size);
+        viewer.render(&mut encoder, &view, Some((half_width, 0.0, half_width, height)));
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+        frame.present();
+        self.needs_update = false;
+
+        Ok(())
     }
 }
