@@ -2,8 +2,14 @@
 
 -high perfromance wgpu pipline built on native WebGPU abstractions <br>
 -local copy of wgpu-3dgs-viewer crate, with some customizations <br>
--exposes minimal WASM interface, allowing web integrations <br>
--is is connected to the following project:
+-exposes minimal WASM interface, allowing web integrations <br> 
+
+---
+
+> **This implementation serves as the core rendering engine of another project.** <br>
+> **This is the associated publication by me:**
+
+---
 
 # Project Scope
 
