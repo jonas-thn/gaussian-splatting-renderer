@@ -711,9 +711,7 @@ if (supportsWebGPU) {
 
 ## Performance Evaluation
 
-::: wrapfigure
-r0.4 ![image](./benchmark.png){width="30%"}
-:::
+![Benchmark Results](./benchmark.png)
 
 To assess the performance with more accuracy, I added a simple benchmark
 utility. It runs for 5 seconds when the user presses the B key and
