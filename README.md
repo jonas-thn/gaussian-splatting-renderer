@@ -1,11 +1,11 @@
 # Gaussian Splatting Renderer
 
-This high-performance rendering pipeline is built on native WebGPU abstractions via wgpu and features a customized local implementation of the wgpu-3dgs-viewer crate. It exposes a minimal WASM interface, designed for seamless integration into complex web-based environments.
+This high-performance rendering pipeline is built on native WebGPU abstractions via wgpu and features a customized local copy of the wgpu-3dgs-viewer crate. It exposes a minimal WASM interface, designed for seamless integration into complex web-based environments.
 
 ---
 
-> **This implementation serves as the core rendering engine of another project.** <br>
-> **This is my associated publication:**
+> **This implementation serves as the rendering engine of another project.** <br>
+> **This is my associated report:**
 
 ---
 
