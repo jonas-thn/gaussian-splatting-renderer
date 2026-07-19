@@ -72,7 +72,7 @@ At the start of the optimization, the focus was the SparkJS renderer
 itself. The documentation had a chapter about performance tuning, which
 was very helpful. I changed the `maxStdDev` parameter from its default
 value of 8 to 3, which limits the Gaussian falloff. Another noteworthy
-parameter was `clipXY`, which discards splats outside of screen space in
+parameter was `clipXY`, which discards splats outside of screen space before
 the fragment shader. After setting it to 1.0, which represents the exact
 screen bounds, the effect became visible, especially when making fast
 turns. I also tried changing the transparency falloff of the individual
@@ -837,12 +837,13 @@ learning experience.
 
 # Declaration of AI Usage
 
-During the development of this project, I used AI tools for research and
-sometimes to write basic boilerplate code. However, any AI was strictly
-used as a supportive assistant. No code was simply copied or
-automatically written except for inline HTML.
+During the development of this project, I combined normal research methods 
+with the use of AI tools for general assistance and sometimes to write basic 
+boilerplate code. For critical information, I always relied on official sources 
+and documentation. No code was simply copied or automatically written, except
+for inline HTML.
 
-Regarding the writing process, I wrote all the text and content myself.
-The AI was only used afterwards to check my grammar, spelling, and to
-get the correct syntax for LaTeX.
+Regarding the writing process, I wrote all the text and content myself. AI was 
+only used afterwards to check my grammar, spelling, and to get the correct 
+syntax for LaTeX.
 
